@@ -5,7 +5,7 @@
 要编译本项目，仍需要安装如下依赖项辅助编译：
 1. [nodejs](https://nodejs.org/zh-cn)
 
-2. 安装好nodejs后执行下面的命令，全局安装[efront]([https:/](https://www.npmjs.com/package/efront):
+2. 安装好nodejs后执行下面的命令，全局安装[efront](https://www.npmjs.com/package/efront):
 
 ```javascript
 npm install -g efront
