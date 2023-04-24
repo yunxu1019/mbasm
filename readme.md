@@ -13,7 +13,7 @@ npm install -g efront
 
 安装好依赖项之后，切换到项目目录，执行如下命令编译本项目
 ```shell
-    tools\build.bat mbasm.asm
+    tools\build.bat blink.asm
 ```
 
 3. 字符串编码
