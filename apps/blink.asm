@@ -54,9 +54,7 @@ user32 user32_<0,0,0,0,0>
 
 factor real4 1.0
 https_ db "https://efront.cc/",0,0
-msg MSG<?>
-
-_ dword ?
+msg MSG<>
 _1 dword ?
 x dword ?
 y dword ?
@@ -69,7 +67,6 @@ w dword ?
 .code
 
 quit proc 
-    local __,__1
     ;miniblink_4949_x32.wkeDestroyWebWindow(w)
     push w
     call miniblink_4949_x32.wkeDestroyWebWindow
@@ -228,29 +225,27 @@ fstp factor
     push offset https_
     push w
     call miniblink_4949_x32.wkeLoadURL
-    label18:
-    lea ebx,msg
-    ;user32.GetMessageW(ebx, null, 0, 0)
+    label17:
+    ;user32.GetMessageW(msg, null, 0, 0)
     push 0
     push 0
     push 0
-    push ebx
+    lea eax,msg
+    push eax
     call user32.GetMessageW
     mov ebx,0
     cmp eax,ebx
-    jnz label22
-    jmp label27
-    label22:
-    lea ebx,msg
-    ;user32.TranslateMessage(ebx)
-    push ebx
+    jz label23
+    ;user32.TranslateMessage(msg)
+    lea eax,msg
+    push eax
     call user32.TranslateMessage
-    lea ebx,msg
-    ;user32.DispatchMessageW(ebx)
-    push ebx
+    ;user32.DispatchMessageW(msg)
+    lea eax,msg
+    push eax
     call user32.DispatchMessageW
-    jmp label18
-    label27:
+    jmp label17
+    label23:
 
     push miniblink_4949_x32$
     call kernel32.FreeLibrary

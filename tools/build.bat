@@ -6,7 +6,12 @@ cd %~dp0..
 set filepath=%1
 if "%filepath%"=="" set filepath="blink.asm"
 if "%filepath:~1,-1%"==%filepath% set filepath=%filepath:~1,-1%
+set extname=%filepath:~-3%
 set filename=%filepath:~0,-3%
+if "%extname%"=="asm" goto :jsend
+set filename=%filename%.
+call efront tools\precode.js "%filename%js"
+:jsend
 
 call efront build "apps\%filename%asm"
 if not exist "public\%filename%asm" goto :end

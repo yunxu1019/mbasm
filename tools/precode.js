@@ -1,11 +1,60 @@
 var path = require('path');
 var fs = require("fs");
-var jspath = path.join(__dirname, "../apps/blink.js");
+var filename = process.argv.pop();
+if (!/\.js$/i.test(filename)) throw "请传入js文件";
+var jspath = path.join(__dirname, "../apps/", filename)
 var jsdata = fs.readFileSync(jspath).toString();
 var code = compile$scanner2(jsdata);
-var { createString, relink, SCOPED, QUOTED, STAMP, STRAP, EXPRESS, VALUE } = compile$common;
+var { createString, skipAssignment, relink, SCOPED, QUOTED, STAMP, STRAP, EXPRESS, VALUE, SPACE, COMMENT } = compile$common;
 code.fix();
 var { used, envs, vars } = code;
+var getDeclared = function (vars) {
+    var declared = Object.create(null);
+    Object.keys(vars).forEach(k => {
+        var u = used[k].filter(o => {
+            return o.text === k;
+        });
+        var isobj = false;
+        u.filter(o => !!o.equal).forEach(a => {
+            var o = a.equal.next;
+            var equal = skipAssignment(o);
+            var eq = [];
+            do {
+                eq.push(o);
+                o = o.next;
+            } while (o && o !== equal);
+            var qt = eq[eq.length - 1];
+            if (qt.type === SCOPED && qt.entry === '(') eq.pop();
+            else qt = null;
+            if (eq.length !== 2) return;
+            var text = eq.pop();
+            var dec = eq.pop();
+            if (dec.type !== STRAP || dec.text !== "void") return;
+            isobj = true;
+            qt = qt ? `<${createString(qt)}>` : '<>';
+            declared[a.text] = [text.text, qt];
+            delete vars[a.text];
+            var q = a.queue;
+            var p = a.prev;
+            var n = text.next;
+            if (p && (p.type === STAMP && p.text === ',' || p.type === STRAP && /^(var|let|const)$/.test(p.text))) {
+                a = p;
+            }
+            else if (n && n.type === STAMP && n.text === ',') {
+                text = n;
+            }
+            if (n && n.type === STAMP && n.text === ';') {
+                text = n;
+            }
+            var index = q.indexOf(a);
+            var end = q.indexOf(text, index) + 1;
+            q.splice(index, end - index);
+            relink(q);
+        });
+        if (isobj) u.forEach(o => o.isobj = true);
+    });
+    return declared;
+};
 var requiredObj = Object.create(null);
 var asmhead = [];
 var asmdata = [];
@@ -91,7 +140,17 @@ if (envs.require) {
 }
 if (envs.asm) {
     used.asm.forEach(c => {
-        c.next.isasm = true;
+        var n = c.next;
+        if (n) {
+            if (c.text === 'asm.addr') {
+                var i = c.queue.indexOf(c);
+                c.queue.splice(i, 1);
+                n.isobj = true;
+                n.text = strings.decode(n.text);
+                relink(c.queue);
+            }
+            n.isasm = true;
+        }
     });
 }
 var varnames = ["_"];
@@ -99,6 +158,7 @@ var getdelta = function (n) {
     return + createString(n).replace(/^\[|\]$/g, '').split(",")[0].trim();
 };
 var transpile = function (code, varnames) {
+    var declared = getDeclared(code.vars);
     var data = [];
     var proc = [];
     var body = [];
@@ -124,7 +184,7 @@ var transpile = function (code, varnames) {
         body.push(`label${i}:`);
         var helpcomment = () => {
             helpcomment = () => { };
-            body.push(`;${createString(c).trim()}`);
+            body.push(`;${createString(c.filter(c => c.type !== SPACE)).trim()}`);
         };
 
         relink(c);
@@ -138,14 +198,19 @@ var transpile = function (code, varnames) {
             }
             if (f.type === STRAP && f.text === 'function') {
                 var funcname = n.type === EXPRESS && n.text;
+                var s = f.scoped;
                 if (!funcname) return;
                 delete code.vars[funcname];
                 n = n.next;
                 var names = [varnames[0] + "_"];
                 proc.push(`${funcname} proc ${createString(n)}`);
                 n = n.next;
-                var [procs, codes, foots] = transpile(n, names);
-                proc.push(`    local ${names.concat(n.vars ? Object.keys(n.vars) : [])}`);
+                n.vars = s.vars;
+                var [procs, codes, foots, declared] = transpile(n, names);
+                if (n.vars) names = names.concat(Object.keys(n.vars));
+                if (names.length > 1) proc.push(`    local ${names.slice(1)}`);
+                var declared_keys = Object.keys(declared);
+                if (declared_keys.length) proc.push(`    local ${declared_keys.map(k => `${k}:${declared[k][0]}`)}`);
                 proc.push(...[...procs, ...codes, ...foots].map(c => '    ' + c));
                 proc.push(`${funcname} endp`);
             }
@@ -203,22 +268,27 @@ var transpile = function (code, varnames) {
             }
             else if (n.isasm) {
                 var t = f.text.slice(4);
-                var text = strings.decode(n.text);
-                switch (t) {
-                    case "code":
-                        body.push(text);
-                        break;
-                    case "data":
-                        asmdata.push(text);
-                        break;
-                    case "foot":
-                        foot.push(text);
-                        break;
-                    case "main":
-                    case "head":
-                    default:
-                        asmhead.push(text);
+                if (n.type === QUOTED) {
+                    var text = strings.decode(n.text);
+                    switch (t) {
+                        case "code":
+                            body.push(text);
+                            break;
+                        case "data":
+                            asmdata.push(text);
+                            break;
+                        case "foot":
+                            foot.push(text);
+                            break;
+                        case "addr":
+                            body.push(`lea eax,${text}`);
+                            break;
+                        case "main":
+                        case "head":
+                        default:
+                            asmhead.push(text);
 
+                    }
                 }
             }
             else if (n.type === STAMP && !/^[,;]$/.test(n.text)) {
@@ -237,6 +307,10 @@ var transpile = function (code, varnames) {
                     if (cc.type === STAMP && cc.text === ',') return;
                     if (cc.type === VALUE) {
                         tempcode.push(`push ${getValue(cc)}`);
+                        return;
+                    }
+                    if (cc.isobj) {
+                        tempcode.push(`push eax`, `lea eax,${cc.text}`);
                         return;
                     }
                     if (cc.type !== QUOTED) {
@@ -258,7 +332,7 @@ var transpile = function (code, varnames) {
         }
     });
     body = body.filter(f => !/:$/.test(f) || f in labelused);
-    return [proc, body, foot];
+    return [proc, body, foot, declared];
 };
 var getValue = function (cc) {
     if (!isFinite(cc.text)) {
@@ -287,7 +361,7 @@ var opmap = {
     "-": "sub eax,ebx",
 };
 asmfoot.push('call kernel32.ExitProcess');
-var [procs, codes, foot] = transpile(code, varnames);
+var [procs, codes, foot, declared] = transpile(code, varnames);
 asmcode = asmcode.concat(codes, foot);
 asmproc.push(...procs);
 var asmtext = `
@@ -297,8 +371,8 @@ ${asmbody.join("\r\n")}
 
 .data
 ${asmdata.join("\r\n")}
-
-${varnames.concat(Object.keys(vars)).map(n => `${n} dword ?`).join("\r\n")}
+${Object.keys(declared).map(k => `${k} ${declared[k].join('')}`)}
+${varnames.slice(1).concat(Object.keys(vars)).map(n => `${n} dword ?`).join("\r\n")}
 
 .code
 
@@ -310,4 +384,4 @@ start:
     ${asmfoot.join("\r\n    ")}
     end start
 `.replace(/\r\n|\r|\n/g, '\r\n');
-fs.writeFileSync(path.join(__dirname, '../apps/blink.asm'), asmtext);
+fs.writeFileSync(path.join(__dirname, '../apps/', filename.replace(/\.js$/i, '.asm')), asmtext);

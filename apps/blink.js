@@ -48,13 +48,10 @@ wkeMoveToCenter(w);
 wkeShowWindow(w, SW_SHOWNORMAL);
 wkeOnWindowClosing(w, quit, null);
 wkeLoadURL(w, "https://efront.cc/");
-asm.data`msg MSG<?>`;
+var msg = void MSG;
 while (true) {
-    asm.code`lea ebx,msg`;
-    GetMessageW(ebx, null, 0, 0);
+    GetMessageW(msg, null, 0, 0);
     if (!eax) break;
-    asm.code`lea ebx,msg`;
-    TranslateMessage(ebx);
-    asm.code`lea ebx,msg`;
-    DispatchMessageW(ebx);
+    TranslateMessage(msg);
+    DispatchMessageW(msg);
 }
