@@ -8,10 +8,38 @@ var code = compile$scanner2(jsdata);
 var { createString, skipAssignment, relink, SCOPED, QUOTED, STAMP, STRAP, EXPRESS, VALUE, SPACE, COMMENT } = compile$common;
 code.fix();
 var { used, envs, vars } = code;
-var getDeclared = function (vars) {
+var getDeclared = function (vars, used) {
     var declared = Object.create(null);
+    var remove = function (a, n) {
+        delete vars[a.text];
+        var q = a.queue;
+        var p = a.prev;
+        if (p && (p.type === STAMP && p.text === ',' || p.type === STRAP && /^(var|let|const)$/.test(p.text))) {
+            a = p;
+        }
+        else if (n && n.type === STAMP && n.text === ',') {
+            n = n;
+        }
+        if (n && n.type === STAMP && n.text === ';') {
+            n = n;
+        }
+        var index = q.indexOf(a);
+        var end = q.indexOf(n, index) + 1;
+        q.splice(index, end - index);
+        relink(q);
+    };
+    var number = function (a, eq) {
+        var n = eq[0];
+        var v = " 1.0";
+        if (eq.length === 1) {
+            v = " " + eq[0].text;
+            remove(a, eq[0]);
+        }
+        declared[a.text] = [/\./.test(n.text) ? "real4" : "dword", v];
+    };
     Object.keys(vars).forEach(k => {
         var u = used[k].filter(o => {
+            o.isfloat = false;
             return o.text === k;
         });
         var isobj = false;
@@ -23,35 +51,23 @@ var getDeclared = function (vars) {
                 eq.push(o);
                 o = o.next;
             } while (o && o !== equal);
+            if (eq[0].isdigit) return number(a, eq);
             var qt = eq[eq.length - 1];
+            var n = qt;
             if (qt.type === SCOPED && qt.entry === '(') eq.pop();
             else qt = null;
             if (eq.length !== 2) return;
             var text = eq.pop();
             var dec = eq.pop();
             if (dec.type !== STRAP || dec.text !== "void") return;
+            remove(a, n);
             isobj = true;
             qt = qt ? `<${createString(qt)}>` : '<>';
             declared[a.text] = [text.text, qt];
-            delete vars[a.text];
-            var q = a.queue;
-            var p = a.prev;
-            var n = text.next;
-            if (p && (p.type === STAMP && p.text === ',' || p.type === STRAP && /^(var|let|const)$/.test(p.text))) {
-                a = p;
-            }
-            else if (n && n.type === STAMP && n.text === ',') {
-                text = n;
-            }
-            if (n && n.type === STAMP && n.text === ';') {
-                text = n;
-            }
-            var index = q.indexOf(a);
-            var end = q.indexOf(text, index) + 1;
-            q.splice(index, end - index);
-            relink(q);
         });
         if (isobj) u.forEach(o => o.isobj = true);
+        var type = declared[k] && declared[k][0];
+        if (/^(dword|real4)$/i.test(type)) u.forEach(a => a.isfloat = type === 'real4');
     });
     return declared;
 };
@@ -68,6 +84,7 @@ var strsmap = Object.create(null), strspam = Object.create(null);
 var asmstrW = function (str, db = 'dw') {
     var k = strings.decode(str);
     if (strsmap[str]) return strsmap[str];
+    if (!k) k = 'str_';
     k = k.replace(/[\.\+\-;,\?\<\>\*\&\^\`\~\!#@%\$\:'"\\\[\]\{\}\(\)\|\/\s\u0080-\uffff]/g, "_").slice(0, 6);
     var kd = k, d = 0;
     while (kd in strspam || kd in envs) {
@@ -158,7 +175,7 @@ var getdelta = function (n) {
     return + createString(n).replace(/^\[|\]$/g, '').split(",")[0].trim();
 };
 var transpile = function (code, varnames) {
-    var declared = getDeclared(code.vars);
+    var declared = getDeclared(code.vars, code.used);
     var data = [];
     var proc = [];
     var body = [];
@@ -206,12 +223,13 @@ var transpile = function (code, varnames) {
                 proc.push(`${funcname} proc ${createString(n)}`);
                 n = n.next;
                 n.vars = s.vars;
+                n.used = s.used;
                 var [procs, codes, foots, declared] = transpile(n, names);
                 if (n.vars) names = names.concat(Object.keys(n.vars));
                 if (names.length > 1) proc.push(`    local ${names.slice(1)}`);
                 var declared_keys = Object.keys(declared);
                 if (declared_keys.length) proc.push(`    local ${declared_keys.map(k => `${k}:${declared[k][0]}`)}`);
-                proc.push(...[...procs, ...codes, ...foots].map(c => '    ' + c));
+                proc.push('enter 0,0', ...[...procs, ...codes, ...foots].map(c => '    ' + c), 'leave', 'ret');
                 proc.push(`${funcname} endp`);
             }
             if (f.type === STRAP && f.text === "if") {
@@ -247,25 +265,29 @@ var transpile = function (code, varnames) {
                 jmp(i + getdelta(n));
                 continue;
             }
-            var assign = null, op = null, name;
+            var assign = null, op = null, isfloat = null, iscalc = false, name;
             if (n.type === STAMP) {
                 if (n.text === '=') {
                     assign = f.text;
+                    isfloat = f.isfloat;
                     f = n.next;
                     n = f.next;
                 }
                 else if (/[^=!]=$/.test(n.text)) {
                     assign = f.text;
+                    iscalc = true;
+                    isfloat = f.isfloat;
                     op = opmap[n.text.slice(0, -1)];
                     if (!op) throw "运算符不支持:" + n.text;
+                    body.push(`f${f.isfloat === false ? 'i' : ''}ld ${f.text}`);
                     f = n.next;
                     n = f.next;
                     name = f.text;
+                    if (f.isfloat === false) op = "fi" + op;
+                    else op = "f" + op;
                 }
             }
-            if (!n || n.type === STAMP && /^[,;]$/.test(n.text)) {
-                body.push(`mov eax,${f.type === VALUE ? getValue(f) : f.text}`);
-            }
+            if (!n);
             else if (n.isasm) {
                 var t = f.text.slice(4);
                 if (n.type === QUOTED) {
@@ -294,10 +316,13 @@ var transpile = function (code, varnames) {
             else if (n.type === STAMP && !/^[,;]$/.test(n.text)) {
                 helpcomment();
                 op = opmap[n.text];
-                body.push(`mov eax,${f.type === VALUE ? getValue(f) : f.text}`);
+                iscalc = true;
                 if (!op) throw "运算符不支持:" + n.text;
+                body.push(`f${f.isfloat === false ? 'i' : ''}ld ${f.text}`);
                 f = n.next;
                 n = f.next;
+                if (f.isfloat === false) op = "fi" + op;
+                else op = "f" + op;
                 name = f.text;
             }
             else if (n.type === SCOPED && n.entry === "(") {
@@ -323,10 +348,15 @@ var transpile = function (code, varnames) {
                 body.push(`call ${f.text}`)
             }
             if (op) {
-                body.push(`xor ecx,ecx`, `mov ebx,${name}`, op);
+                body.push(`${op} ${name}`);
             }
             if (assign) {
-                body.push(`mov ${assign},eax`);
+                if (!iscalc) {
+                    body.push(`mov ${assign},eax`);
+                }
+                else {
+                    body.push(`f${isfloat === false ? 'i' : ''}stp ${assign}`);
+                }
             }
             if (!n) break;
         }
@@ -355,10 +385,10 @@ var getValue = function (cc) {
     return cc.text;
 }
 var opmap = {
-    "*": "mul ebx",
-    "+": "add eax,ebx",
-    "/": "div ebx",
-    "-": "sub eax,ebx",
+    "*": "mul",
+    "+": "add",
+    "/": "div",
+    "-": "sub"
 };
 asmfoot.push('call kernel32.ExitProcess');
 var [procs, codes, foot, declared] = transpile(code, varnames);
@@ -371,7 +401,7 @@ ${asmbody.join("\r\n")}
 
 .data
 ${asmdata.join("\r\n")}
-${Object.keys(declared).map(k => `${k} ${declared[k].join('')}`)}
+${Object.keys(declared).map(k => `${k} ${declared[k].join('')}`).join("\r\n")}
 ${varnames.slice(1).concat(Object.keys(vars)).map(n => `${n} dword ?`).join("\r\n")}
 
 .code

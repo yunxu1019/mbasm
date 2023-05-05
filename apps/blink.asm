@@ -14,6 +14,9 @@ miniblink_4949_x32_ struct
     wkeShowWindow dword ?
     wkeSetZoomFactor dword ?
     wkeMoveToCenter dword ?
+    wkeSetWindowTitle dword ?
+    wkeOnLoadingFinish dword ?
+    wkeGetTitle dword ?
     wkeLoadURL dword ?
 miniblink_4949_x32_ ends
 shcore_ struct
@@ -37,8 +40,11 @@ wkeDestroyWebWindow@ byte "wkeDestroyWebWindow",0
 wkeShowWindow@ byte "wkeShowWindow",0
 wkeSetZoomFactor@ byte "wkeSetZoomFactor",0
 wkeMoveToCenter@ byte "wkeMoveToCenter",0
+wkeSetWindowTitle@ byte "wkeSetWindowTitle",0
+wkeOnLoadingFinish@ byte "wkeOnLoadingFinish",0
+wkeGetTitle@ byte "wkeGetTitle",0
 wkeLoadURL@ byte "wkeLoadURL",0
-miniblink_4949_x32 miniblink_4949_x32_<0,0,0,0,0,0,0,0>
+miniblink_4949_x32 miniblink_4949_x32_<0,0,0,0,0,0,0,0,0,0,0>
 shcore@ dw 'shcore.dll',0
 shcore$ dword ?
 SetProcessDpiAwareness@ byte "SetProcessDpiAwareness",0
@@ -51,29 +57,46 @@ DispatchMessageW@ byte "DispatchMessageW",0
 GetSystemMetrics@ byte "GetSystemMetrics",0
 PostQuitMessage@ byte "PostQuitMessage",0
 user32 user32_<0,0,0,0,0>
-
+______ db "正在加载...",0,0
+http__ db "http://efront.cc/",0,0
+w_ dword 800
+h_ dword 600
 factor real4 1.0
-https_ db "https://efront.cc/",0,0
 msg MSG<>
 _1 dword ?
 x dword ?
 y dword ?
 x1 dword ?
 y1 dword ?
-w_ dword ?
-h_ dword ?
 w dword ?
 
 .code
 
 quit proc 
+enter 0,0
     ;miniblink_4949_x32.wkeDestroyWebWindow(w)
     push w
     call miniblink_4949_x32.wkeDestroyWebWindow
     ;user32.PostQuitMessage(null)
     push 0
     call user32.PostQuitMessage
+leave
+ret
 quit endp
+onload proc 
+    local t
+enter 0,0
+    ;t = miniblink_4949_x32.wkeGetTitle(w)
+    push w
+    call miniblink_4949_x32.wkeGetTitle
+    mov t,eax
+    ;miniblink_4949_x32.wkeSetWindowTitle(w, t)
+    push t
+    push w
+    call miniblink_4949_x32.wkeSetWindowTitle
+leave
+ret
+onload endp
 
 start:
     call init_kernel32
@@ -108,6 +131,18 @@ start:
     push miniblink_4949_x32$
     call kernel32.GetProcAddress
     mov miniblink_4949_x32.wkeMoveToCenter,eax
+    push offset wkeSetWindowTitle@
+    push miniblink_4949_x32$
+    call kernel32.GetProcAddress
+    mov miniblink_4949_x32.wkeSetWindowTitle,eax
+    push offset wkeOnLoadingFinish@
+    push miniblink_4949_x32$
+    call kernel32.GetProcAddress
+    mov miniblink_4949_x32.wkeOnLoadingFinish,eax
+    push offset wkeGetTitle@
+    push miniblink_4949_x32$
+    call kernel32.GetProcAddress
+    mov miniblink_4949_x32.wkeGetTitle,eax
     push offset wkeLoadURL@
     push miniblink_4949_x32$
     call kernel32.GetProcAddress
@@ -161,38 +196,27 @@ start:
     push SM_CYSCREEN
     call user32.GetSystemMetrics
     mov y1,eax
-    ;_1 = 800 * x1, _1 = _1 / x, w_ = _1
-    mov eax,800
-    xor ecx,ecx
-    mov ebx,x1
-    mul ebx
-    mov _1,eax
-    mov eax,_1
-    xor ecx,ecx
-    mov ebx,x
-    div ebx
-    mov _1,eax
-    mov eax,_1
-    mov w_,eax
-    ;_1 = 600 * y1, _1 = _1 / y, h_ = _1
-    mov eax,600
-    xor ecx,ecx
-    mov ebx,y1
-    mul ebx
-    mov _1,eax
-    mov eax,_1
-    xor ecx,ecx
-    mov ebx,y
-    div ebx
-    mov _1,eax
-    mov eax,_1
-    mov h_,eax
-    
-fld1
-fimul x1
-fidiv x
-fstp factor
-
+    ;_1 = x1 / x, w_ *= _1
+    fild x1
+    fidiv x
+    fstp _1
+    fild w_
+    fmul _1
+    fistp w_
+    ;_1 = y1 / y, h_ *= _1
+    fild y1
+    fidiv y
+    fstp _1
+    fild h_
+    fmul _1
+    fistp h_
+    ;_1 = x1 / x, factor *= _1
+    fild x1
+    fidiv x
+    fstp _1
+    fld factor
+    fmul _1
+    fstp factor
     ;miniblink_4949_x32.wkeInitializeEx(null)
     push 0
     call miniblink_4949_x32.wkeInitializeEx
@@ -212,6 +236,10 @@ fstp factor
     ;miniblink_4949_x32.wkeMoveToCenter(w)
     push w
     call miniblink_4949_x32.wkeMoveToCenter
+    ;miniblink_4949_x32.wkeSetWindowTitle(w, "正在加载...")
+    push offset ______
+    push w
+    call miniblink_4949_x32.wkeSetWindowTitle
     ;miniblink_4949_x32.wkeShowWindow(w, SW_SHOWNORMAL)
     push SW_SHOWNORMAL
     push w
@@ -221,11 +249,16 @@ fstp factor
     push quit
     push w
     call miniblink_4949_x32.wkeOnWindowClosing
-    ;miniblink_4949_x32.wkeLoadURL(w, "https://efront.cc/")
-    push offset https_
+    ;miniblink_4949_x32.wkeOnLoadingFinish(w, onload, null)
+    push 0
+    push onload
+    push w
+    call miniblink_4949_x32.wkeOnLoadingFinish
+    ;miniblink_4949_x32.wkeLoadURL(w, "http://efront.cc/")
+    push offset http__
     push w
     call miniblink_4949_x32.wkeLoadURL
-    label17:
+    label23:
     ;user32.GetMessageW(msg, null, 0, 0)
     push 0
     push 0
@@ -235,7 +268,7 @@ fstp factor
     call user32.GetMessageW
     mov ebx,0
     cmp eax,ebx
-    jz label23
+    jz label29
     ;user32.TranslateMessage(msg)
     lea eax,msg
     push eax
@@ -244,8 +277,8 @@ fstp factor
     lea eax,msg
     push eax
     call user32.DispatchMessageW
-    jmp label17
-    label23:
+    jmp label23
+    label29:
 
     push miniblink_4949_x32$
     call kernel32.FreeLibrary
