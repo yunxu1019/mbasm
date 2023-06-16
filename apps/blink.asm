@@ -74,7 +74,7 @@ w dword ?
 
 quit proc 
 enter 0,0
-    ;miniblink_4949_x32.wkeDestroyWebWindow(w)
+    ;miniblink_4949_x32.wkeDestroyWebWindow(w);
     push w
     call miniblink_4949_x32.wkeDestroyWebWindow
     ;user32.PostQuitMessage(null)
@@ -84,9 +84,9 @@ leave
 ret
 quit endp
 onload proc 
-    local t
+    local __1,t
 enter 0,0
-    ;t = miniblink_4949_x32.wkeGetTitle(w)
+    ;t = miniblink_4949_x32.wkeGetTitle(w);
     push w
     call miniblink_4949_x32.wkeGetTitle
     mov t,eax
@@ -177,50 +177,53 @@ start:
     push user32$
     call kernel32.GetProcAddress
     mov user32.PostQuitMessage,eax
-    ;x = user32.GetSystemMetrics(SM_CXSCREEN)
+    ;x = user32.GetSystemMetrics(SM_CXSCREEN);
     push SM_CXSCREEN
     call user32.GetSystemMetrics
     mov x,eax
-    ;y = user32.GetSystemMetrics(SM_CYSCREEN)
+    ;y = user32.GetSystemMetrics(SM_CYSCREEN);
     push SM_CYSCREEN
     call user32.GetSystemMetrics
     mov y,eax
-    ;shcore.SetProcessDpiAwareness(1)
+    ;shcore.SetProcessDpiAwareness(1);
     push 1
     call shcore.SetProcessDpiAwareness
-    ;x1 = user32.GetSystemMetrics(SM_CXSCREEN)
+    ;x1 = user32.GetSystemMetrics(SM_CXSCREEN);
     push SM_CXSCREEN
     call user32.GetSystemMetrics
     mov x1,eax
-    ;y1 = user32.GetSystemMetrics(SM_CYSCREEN)
+    ;y1 = user32.GetSystemMetrics(SM_CYSCREEN);
     push SM_CYSCREEN
     call user32.GetSystemMetrics
     mov y1,eax
-    ;_1 = x1 / x, w_ *= _1
+    ;_1 = x1 / x;
     fild x1
     fidiv x
     fstp _1
+    ;w_ = w_ * _1;
     fild w_
     fmul _1
     fistp w_
-    ;_1 = y1 / y, h_ *= _1
+    ;_1 = y1 / y;
     fild y1
     fidiv y
     fstp _1
+    ;h_ = h_ * _1;
     fild h_
     fmul _1
     fistp h_
-    ;_1 = x1 / x, factor *= _1
+    ;_1 = x1 / x;
     fild x1
     fidiv x
     fstp _1
+    ;factor = factor * _1;
     fld factor
     fmul _1
     fstp factor
-    ;miniblink_4949_x32.wkeInitializeEx(null)
+    ;miniblink_4949_x32.wkeInitializeEx(null);
     push 0
     call miniblink_4949_x32.wkeInitializeEx
-    ;w = miniblink_4949_x32.wkeCreateWebWindow(WKE_WINDOW_TYPE_POPUP, null, 0, 0, w_, h_)
+    ;w = miniblink_4949_x32.wkeCreateWebWindow(WKE_WINDOW_TYPE_POPUP, null, 0, 0, w_, h_);
     push h_
     push w_
     push 0
@@ -229,37 +232,37 @@ start:
     push WKE_WINDOW_TYPE_POPUP
     call miniblink_4949_x32.wkeCreateWebWindow
     mov w,eax
-    ;miniblink_4949_x32.wkeSetZoomFactor(w, factor)
+    ;miniblink_4949_x32.wkeSetZoomFactor(w, factor);
     push factor
     push w
     call miniblink_4949_x32.wkeSetZoomFactor
-    ;miniblink_4949_x32.wkeMoveToCenter(w)
+    ;miniblink_4949_x32.wkeMoveToCenter(w);
     push w
     call miniblink_4949_x32.wkeMoveToCenter
-    ;miniblink_4949_x32.wkeSetWindowTitle(w, "正在加载...")
+    ;miniblink_4949_x32.wkeSetWindowTitle(w, "正在加载...");
     push offset ______
     push w
     call miniblink_4949_x32.wkeSetWindowTitle
-    ;miniblink_4949_x32.wkeShowWindow(w, SW_SHOWNORMAL)
+    ;miniblink_4949_x32.wkeShowWindow(w, SW_SHOWNORMAL);
     push SW_SHOWNORMAL
     push w
     call miniblink_4949_x32.wkeShowWindow
-    ;miniblink_4949_x32.wkeOnWindowClosing(w, quit, null)
+    ;miniblink_4949_x32.wkeOnWindowClosing(w, quit, null);
     push 0
     push quit
     push w
     call miniblink_4949_x32.wkeOnWindowClosing
-    ;miniblink_4949_x32.wkeOnLoadingFinish(w, onload, null)
+    ;miniblink_4949_x32.wkeOnLoadingFinish(w, onload, null);
     push 0
     push onload
     push w
     call miniblink_4949_x32.wkeOnLoadingFinish
-    ;miniblink_4949_x32.wkeLoadURL(w, "http://efront.cc/")
+    ;miniblink_4949_x32.wkeLoadURL(w, "http://efront.cc/");
     push offset http__
     push w
     call miniblink_4949_x32.wkeLoadURL
-    label23:
-    ;user32.GetMessageW(msg, null, 0, 0)
+    label1:
+    ;user32.GetMessageW(msg, null, 0, 0);
     push 0
     push 0
     push 0
@@ -268,17 +271,17 @@ start:
     call user32.GetMessageW
     mov ebx,0
     cmp eax,ebx
-    jz label29
-    ;user32.TranslateMessage(msg)
+    jz label2
+    ;user32.TranslateMessage(msg);
     lea eax,msg
     push eax
     call user32.TranslateMessage
-    ;user32.DispatchMessageW(msg)
+    ;user32.DispatchMessageW(msg);
     lea eax,msg
     push eax
     call user32.DispatchMessageW
-    jmp label23
-    label29:
+    jmp label1
+    label2:
 
     push miniblink_4949_x32$
     call kernel32.FreeLibrary

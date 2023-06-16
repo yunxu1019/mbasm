@@ -5,7 +5,7 @@ if (!/\.js$/i.test(filename)) throw "请传入js文件";
 var jspath = path.join(__dirname, "../apps/", filename)
 var jsdata = fs.readFileSync(jspath).toString();
 var code = compile$scanner2(jsdata);
-var { createString, skipAssignment, relink, SCOPED, QUOTED, STAMP, STRAP, EXPRESS, VALUE, SPACE, COMMENT } = compile$common;
+var { createString, skipAssignment, relink, SCOPED, QUOTED, STAMP, STRAP, EXPRESS, VALUE, SPACE, COMMENT, createExpressList } = compile$common;
 code.fix();
 var { used, envs, vars } = code;
 var getDeclared = function (vars, used) {
@@ -197,169 +197,173 @@ var transpile = function (code, varnames) {
         varnames.push(vn);
         return vn;
     }, varnames[0]);
-    unstruted.forEach((c, i) => {
-        body.push(`label${i}:`);
-        var helpcomment = () => {
-            helpcomment = () => { };
-            body.push(`;${createString(c.filter(c => c.type !== SPACE)).trim()}`);
-        };
+    unstruted.forEach((c, j) => {
+        body.push(`label${j}:`);
+        createExpressList(c).forEach((c, i, a) => {
+            var helpcomment = () => {
+                helpcomment = () => { };
+                body.push(`;${createString(c.filter(c => c.type & ~(SPACE | COMMENT))).trim()}`);
+            };
 
-        relink(c);
-        for (var f = c.first; f; f = n.next) {
-            while (f && f.type === STAMP && /[,;]/.test(f.text)) f = f.next;
-            if (!f) return;
-            var n = f.next;
-            if (!n) {
-                body.push(createString(c));
-                return;
-            }
-            if (f.type === STRAP && f.text === 'function') {
-                var funcname = n.type === EXPRESS && n.text;
-                var s = f.scoped;
-                if (!funcname) return;
-                delete code.vars[funcname];
-                n = n.next;
-                var names = [varnames[0] + "_"];
-                proc.push(`${funcname} proc ${createString(n)}`);
-                n = n.next;
-                n.vars = s.vars;
-                n.used = s.used;
-                var [procs, codes, foots, declared] = transpile(n, names);
-                if (n.vars) names = names.concat(Object.keys(n.vars));
-                if (names.length > 1) proc.push(`    local ${names.slice(1)}`);
-                var declared_keys = Object.keys(declared);
-                if (declared_keys.length) proc.push(`    local ${declared_keys.map(k => `${k}:${declared[k][0]}`)}`);
-                proc.push('enter 0,0', ...[...procs, ...codes, ...foots].map(c => '    ' + c), 'leave', 'ret');
-                proc.push(`${funcname} endp`);
-            }
-            if (f.type === STRAP && f.text === "if") {
-                var nf = n.first;
-                var jm = 'jnz'
-                if (nf.type === STAMP && nf.text === '!') {
-                    jm = 'jz';
-                    nf = nf.next;
+            for (var f = c.first; f; f = n.next) {
+                while (f && f.type === STAMP && /[,;]/.test(f.text)) f = f.next;
+                if (!f) return;
+                var n = f.next;
+                if (!n) {
+                    body.push(createString(c));
+                    return;
                 }
-                f = n.next;
-                n = f.next;
-                var v = nf.type === VALUE ? getValue(nf) : nf.text;
-                if (v === 0) {
-                    if (jm === 'jz') jm = 'jmp';
-                    else continue;
+                if (f.type === STRAP && f.text === 'function') {
+                    var funcname = n.type === EXPRESS && n.text;
+                    var s = f.scoped;
+                    if (!funcname) return;
+                    delete code.vars[funcname];
+                    n = n.next;
+                    var names = [varnames[0] + "_"];
+                    proc.push(`${funcname} proc ${createString(n)}`);
+                    n = n.next;
+                    n.vars = s.vars;
+                    n.used = s.used;
+                    var [procs, codes, foots, declared] = transpile(n, names);
+                    if (n.vars) names = names.concat(Object.keys(n.vars));
+                    if (names.length > 1) proc.push(`    local ${names.slice(1)}`);
+                    var declared_keys = Object.keys(declared);
+                    if (declared_keys.length) proc.push(`    local ${declared_keys.map(k => `${k}:${declared[k][0]}`)}`);
+                    proc.push('enter 0,0', ...[...procs, ...codes, ...foots].map(c => '    ' + c), 'leave', 'ret');
+                    proc.push(`${funcname} endp`);
                 }
-                else if (v === 1) {
-                    if (jm === 'jnz') jm = 'jmp';
-                    else continue;
-                }
-                else {
-                    if (v !== 'eax') {
-                        body.push(`mov eax,${v}`);
+                if (f.type === STRAP && f.text === "if") {
+                    var nf = n.first;
+                    var jm = 'jnz'
+                    if (nf.type === STAMP && nf.text === '!') {
+                        jm = 'jz';
+                        nf = nf.next;
                     }
-                    body.push(`mov ebx,0`, `cmp eax,ebx`);
-                }
-                if (f.type === STRAP && f.text === `return`) {
-                    jmp(i + getdelta(n), jm);
-                }
-                continue;
-            }
-            if (f.type === STRAP && f.text === 'return') {
-                jmp(i + getdelta(n));
-                continue;
-            }
-            var assign = null, op = null, isfloat = null, iscalc = false, name;
-            if (n.type === STAMP) {
-                if (n.text === '=') {
-                    assign = f.text;
-                    isfloat = f.isfloat;
                     f = n.next;
                     n = f.next;
+                    var v = nf.type === VALUE ? getValue(nf) : nf.text;
+                    if (v === 0) {
+                        if (jm === 'jz') jm = 'jmp';
+                        else continue;
+                    }
+                    else if (v === 1) {
+                        if (jm === 'jnz') jm = 'jmp';
+                        else continue;
+                    }
+                    else {
+                        if (v !== 'eax') {
+                            body.push(`mov eax,${v}`);
+                        }
+                        body.push(`mov ebx,0`, `cmp eax,ebx`);
+                    }
+                    console.log(createString(n.prev.prev))
+                    if (f.type === STRAP && f.text === `return`) {
+                        jmp(j + getdelta(n), jm);
+                    }
+                    continue;
                 }
-                else if (/[^=!]=$/.test(n.text)) {
-                    assign = f.text;
+                if (f.type === STRAP && f.text === 'return') {
+                    if (getdelta(n) === 1 && i + 1 === a.length && !n.next) continue;
+                    jmp(j + getdelta(n));
+                    continue;
+                }
+                var assign = null, op = null, isfloat = null, iscalc = false, name;
+                if (n.type === STAMP) {
+                    if (n.text === '=') {
+                        assign = f.text;
+                        isfloat = f.isfloat;
+                        f = n.next;
+                        n = f.next;
+                    }
+                    else if (/[^=!]=$/.test(n.text)) {
+                        assign = f.text;
+                        iscalc = true;
+                        isfloat = f.isfloat;
+                        op = opmap[n.text.slice(0, -1)];
+                        if (!op) throw "运算符不支持:" + n.text;
+                        body.push(`f${f.isfloat === false ? 'i' : ''}ld ${f.text}`);
+                        f = n.next;
+                        n = f.next;
+                        name = f.text;
+                        if (f.isfloat === false) op = "fi" + op;
+                        else op = "f" + op;
+                    }
+                }
+                if (!n);
+                else if (n.isasm) {
+                    var t = f.text.slice(4);
+                    if (n.type === QUOTED) {
+                        var text = strings.decode(n.text);
+                        switch (t) {
+                            case "code":
+                                body.push(text);
+                                break;
+                            case "data":
+                                asmdata.push(text);
+                                break;
+                            case "foot":
+                                foot.push(text);
+                                break;
+                            case "addr":
+                                body.push(`lea eax,${text}`);
+                                break;
+                            case "main":
+                            case "head":
+                            default:
+                                asmhead.push(text);
+
+                        }
+                    }
+                }
+                else if (n.type === STAMP && !/^[,;]$/.test(n.text)) {
+                    helpcomment();
+                    op = opmap[n.text];
                     iscalc = true;
-                    isfloat = f.isfloat;
-                    op = opmap[n.text.slice(0, -1)];
                     if (!op) throw "运算符不支持:" + n.text;
                     body.push(`f${f.isfloat === false ? 'i' : ''}ld ${f.text}`);
                     f = n.next;
                     n = f.next;
-                    name = f.text;
                     if (f.isfloat === false) op = "fi" + op;
                     else op = "f" + op;
+                    name = f.text;
                 }
+                else if (n.type === SCOPED && n.entry === "(") {
+                    helpcomment();
+                    var tempcode = [];
+                    n.forEach(function a(cc) {
+                        if (cc.type === STAMP && cc.text === ',') return;
+                        if (cc.type === VALUE) {
+                            tempcode.push(`push ${getValue(cc)}`);
+                            return;
+                        }
+                        if (cc.isobj) {
+                            tempcode.push(`push eax`, `lea eax,${cc.text}`);
+                            return;
+                        }
+                        if (cc.type !== QUOTED) {
+                            tempcode.push(`push ${cc.text}`);
+                            return;
+                        }
+                        tempcode.push(`push offset ${asmstrU(cc.text)}`);
+                    });
+                    while (tempcode.length) body.push(tempcode.pop());
+                    body.push(`call ${f.text}`)
+                }
+                if (op) {
+                    body.push(`${op} ${name}`);
+                }
+                if (assign) {
+                    if (!iscalc) {
+                        body.push(`mov ${assign},eax`);
+                    }
+                    else {
+                        body.push(`f${isfloat === false ? 'i' : ''}stp ${assign}`);
+                    }
+                }
+                if (!n) break;
             }
-            if (!n);
-            else if (n.isasm) {
-                var t = f.text.slice(4);
-                if (n.type === QUOTED) {
-                    var text = strings.decode(n.text);
-                    switch (t) {
-                        case "code":
-                            body.push(text);
-                            break;
-                        case "data":
-                            asmdata.push(text);
-                            break;
-                        case "foot":
-                            foot.push(text);
-                            break;
-                        case "addr":
-                            body.push(`lea eax,${text}`);
-                            break;
-                        case "main":
-                        case "head":
-                        default:
-                            asmhead.push(text);
+        })
 
-                    }
-                }
-            }
-            else if (n.type === STAMP && !/^[,;]$/.test(n.text)) {
-                helpcomment();
-                op = opmap[n.text];
-                iscalc = true;
-                if (!op) throw "运算符不支持:" + n.text;
-                body.push(`f${f.isfloat === false ? 'i' : ''}ld ${f.text}`);
-                f = n.next;
-                n = f.next;
-                if (f.isfloat === false) op = "fi" + op;
-                else op = "f" + op;
-                name = f.text;
-            }
-            else if (n.type === SCOPED && n.entry === "(") {
-                helpcomment();
-                var tempcode = [];
-                n.forEach(function a(cc) {
-                    if (cc.type === STAMP && cc.text === ',') return;
-                    if (cc.type === VALUE) {
-                        tempcode.push(`push ${getValue(cc)}`);
-                        return;
-                    }
-                    if (cc.isobj) {
-                        tempcode.push(`push eax`, `lea eax,${cc.text}`);
-                        return;
-                    }
-                    if (cc.type !== QUOTED) {
-                        tempcode.push(`push ${cc.text}`);
-                        return;
-                    }
-                    tempcode.push(`push offset ${asmstrU(cc.text)}`);
-                });
-                while (tempcode.length) body.push(tempcode.pop());
-                body.push(`call ${f.text}`)
-            }
-            if (op) {
-                body.push(`${op} ${name}`);
-            }
-            if (assign) {
-                if (!iscalc) {
-                    body.push(`mov ${assign},eax`);
-                }
-                else {
-                    body.push(`f${isfloat === false ? 'i' : ''}stp ${assign}`);
-                }
-            }
-            if (!n) break;
-        }
     });
     body = body.filter(f => !/:$/.test(f) || f in labelused);
     return [proc, body, foot, declared];
