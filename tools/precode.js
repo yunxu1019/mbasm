@@ -39,7 +39,6 @@ var getDeclared = function (vars, used) {
     };
     Object.keys(vars).forEach(k => {
         var u = used[k].filter(o => {
-            o.isfloat = false;
             return o.text === k;
         });
         var isobj = false;
@@ -67,7 +66,6 @@ var getDeclared = function (vars, used) {
         });
         if (isobj) u.forEach(o => o.isobj = true);
         var type = declared[k] && declared[k][0];
-        if (/^(dword|real4)$/i.test(type)) u.forEach(a => a.isfloat = type === 'real4');
     });
     return declared;
 };
@@ -175,7 +173,12 @@ var getdelta = function (n) {
     return + createString(n).replace(/^\[|\]$/g, '').split(",")[0].trim();
 };
 var transpile = function (code, varnames) {
-    var declared = getDeclared(code.vars, code.used);
+    var declared_ = getDeclared(code.vars, code.used);
+    var isFloat = function (assign) {
+        console.log(declared_[assign], assign)
+        if (assign in declared_) return declared_[assign][0] === 'real4';
+        return !(assign in code.vars);
+    };
     var data = [];
     var proc = [];
     var body = [];
@@ -213,25 +216,6 @@ var transpile = function (code, varnames) {
                     body.push(createString(c));
                     return;
                 }
-                if (f.type === STRAP && f.text === 'function') {
-                    var funcname = n.type === EXPRESS && n.text;
-                    var s = f.scoped;
-                    if (!funcname) return;
-                    delete code.vars[funcname];
-                    n = n.next;
-                    var names = [varnames[0] + "_"];
-                    proc.push(`${funcname} proc ${createString(n)}`);
-                    n = n.next;
-                    n.vars = s.vars;
-                    n.used = s.used;
-                    var [procs, codes, foots, declared] = transpile(n, names);
-                    if (n.vars) names = names.concat(Object.keys(n.vars));
-                    if (names.length > 1) proc.push(`    local ${names.slice(1)}`);
-                    var declared_keys = Object.keys(declared);
-                    if (declared_keys.length) proc.push(`    local ${declared_keys.map(k => `${k}:${declared[k][0]}`)}`);
-                    proc.push('enter 0,0', ...[...procs, ...codes, ...foots].map(c => '    ' + c), 'leave', 'ret');
-                    proc.push(`${funcname} endp`);
-                }
                 if (f.type === STRAP && f.text === "if") {
                     var nf = n.first;
                     var jm = 'jnz'
@@ -256,7 +240,6 @@ var transpile = function (code, varnames) {
                         }
                         body.push(`mov ebx,0`, `cmp eax,ebx`);
                     }
-                    console.log(createString(n.prev.prev))
                     if (f.type === STRAP && f.text === `return`) {
                         jmp(j + getdelta(n), jm);
                     }
@@ -267,27 +250,45 @@ var transpile = function (code, varnames) {
                     jmp(j + getdelta(n));
                     continue;
                 }
-                var assign = null, op = null, isfloat = null, iscalc = false, name;
+                var assign = null, op = null, iscalc = false, name;
                 if (n.type === STAMP) {
                     if (n.text === '=') {
                         assign = f.text;
-                        isfloat = f.isfloat;
                         f = n.next;
                         n = f.next;
                     }
                     else if (/[^=!]=$/.test(n.text)) {
                         assign = f.text;
                         iscalc = true;
-                        isfloat = f.isfloat;
                         op = opmap[n.text.slice(0, -1)];
                         if (!op) throw "运算符不支持:" + n.text;
-                        body.push(`f${f.isfloat === false ? 'i' : ''}ld ${f.text}`);
+                        body.push(`f${isFloat(assign) === false ? 'i' : ''}ld ${f.text}`);
                         f = n.next;
                         n = f.next;
                         name = f.text;
-                        if (f.isfloat === false) op = "fi" + op;
+                        if (isFloat(name) === false) op = "fi" + op;
                         else op = "f" + op;
                     }
+                }
+                if (f.type === STRAP && f.text === 'function') {
+                    var funcname = n.type === EXPRESS && n.text;
+                    var s = f.scoped;
+                    if (!funcname) return;
+                    delete code.vars[funcname];
+                    n = n.next;
+                    var names = [varnames[0] + "_"];
+                    proc.push(`${funcname} proc ${createString(n)}`);
+                    n = n.next;
+                    n.vars = s.vars;
+                    n.used = s.used;
+                    var [procs, codes, foots, declared] = transpile(n, names);
+                    if (n.vars) names = names.concat(Object.keys(n.vars));
+                    if (names.length > 1) proc.push(`    local ${names.slice(1)}`);
+                    var declared_keys = Object.keys(declared);
+                    if (declared_keys.length) proc.push(`    local ${declared_keys.map(k => `${k}:${declared[k][0]}`)}`);
+                    proc.push('enter 0,0', ...[...procs, ...codes, ...foots].map(c => '    ' + c), 'leave', 'ret');
+                    proc.push(`${funcname} endp`);
+                    continue;
                 }
                 if (!n);
                 else if (n.isasm) {
@@ -320,10 +321,10 @@ var transpile = function (code, varnames) {
                     op = opmap[n.text];
                     iscalc = true;
                     if (!op) throw "运算符不支持:" + n.text;
-                    body.push(`f${f.isfloat === false ? 'i' : ''}ld ${f.text}`);
+                    body.push(`f${isFloat(f.text) === false ? 'i' : ''}ld ${f.text}`);
                     f = n.next;
                     n = f.next;
-                    if (f.isfloat === false) op = "fi" + op;
+                    if (isFloat(f.text) === false) op = "fi" + op;
                     else op = "f" + op;
                     name = f.text;
                 }
@@ -357,7 +358,7 @@ var transpile = function (code, varnames) {
                         body.push(`mov ${assign},eax`);
                     }
                     else {
-                        body.push(`f${isfloat === false ? 'i' : ''}stp ${assign}`);
+                        body.push(`f${isFloat(assign) === false ? 'i' : ''}stp ${assign}`);
                     }
                 }
                 if (!n) break;
@@ -366,7 +367,7 @@ var transpile = function (code, varnames) {
 
     });
     body = body.filter(f => !/:$/.test(f) || f in labelused);
-    return [proc, body, foot, declared];
+    return [proc, body, foot, declared_];
 };
 var getValue = function (cc) {
     if (!isFinite(cc.text)) {
